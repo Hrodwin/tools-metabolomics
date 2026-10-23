@@ -1,7 +1,10 @@
-<tool id="mzxmlmetadatacollector" name="mz(X)MLMetadataCollector" version="1.0.0+galaxy0" profile="22.01">
+<tool id="mzxmlmetadatacollector" name="mz(X)MLMetadataCollector" version="@TOOL_VERSION@" profile="22.01">
   <description>
     gathers mzML and mzXML metadata into a tabular file
   </description>
+  <macros>
+    <token name="@TOOL_VERSION@">1.0.0+galaxy0</token>
+  </macros>
   
   <requirements>
     <requirement type="package" version="2.1.0">numpy</requirement>

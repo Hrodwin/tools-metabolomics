@@ -13,6 +13,7 @@ import re
 import sys
 
 import numpy as np
+import xml.etree.ElementTree as ET
 
 
 def get_info(file, format1):
@@ -101,7 +102,7 @@ def get_info(file, format1):
         ProcessList1 = "Not available in mzXML"
 
         # Getting Machine model
-        modele1 = get_mzxml_instrument_model(text1)
+        modele1 = get_mzxml_instrument_model_et(text1)
 
         # Getting scans and points number
         nbscans1 = count_scans_mzxml(text1)
@@ -123,7 +124,13 @@ def get_info(file, format1):
 
 def get_encoding_mzxml(text1):
     try:
-        encodage1 = text1.split('precision="')[1].split('"')[0] + "-bit"
+        root = ET.fromstring(text1)
+        # Look for binaryDataArray element with precision attribute
+        bd = root.find('.//binaryDataArray')
+        if bd is not None and bd.attrib.get('precision'):
+            encodage1 = f"{bd.attrib.get('precision')}-bit"
+        else:
+            encodage1 = 'Not available'
     except Exception:
         encodage1 = 'Not available'
     return encodage1
@@ -131,14 +138,14 @@ def get_encoding_mzxml(text1):
 
 def count_points_mzxml(file):
     try:
+        # Use ElementTree to sum peaksCount attributes across all scans
+        tree = ET.parse(file)
+        root = tree.getroot()
         nbpoints1 = 0
-        with open(file, 'r') as f:
-            line = 'start'
-            while (line != ''):
-                line = f.readline()
-                if ('peaksCount="' in line):
-                    nbpoints1 = nbpoints1 + \
-                            int(line.split('peaksCount="')[1].split('"')[0])
+        for scan in root.iter('scan'):
+            pc = scan.attrib.get('peaksCount')
+            if pc:
+                nbpoints1 += int(pc)
     except Exception:
         nbpoints1 = "Calculation failed"
     return nbpoints1
@@ -146,7 +153,12 @@ def count_points_mzxml(file):
 
 def count_scans_mzxml(text1):
     try:
-        nbscans1 = text1.split('msRun scanCount="')[1].split('"')[0]
+        root = ET.fromstring(text1)
+        msRun = root.find('.//msRun')
+        if msRun is not None:
+            nbscans1 = msRun.attrib.get('scanCount', "Not found")
+        else:
+            nbscans1 = "Not found"
     except Exception:
         nbscans1 = "Not found"
     return nbscans1
@@ -154,14 +166,18 @@ def count_scans_mzxml(text1):
 
 def get_mzxml_spectrum_type(text1):
     try:
-        spectrum1 = text1.split('centroided="')[1].split('"')[0]
-        if spectrum1 == "0":
-            spectrum1 = "profile"
-        else:
-            if spectrum1 == "1":
-                spectrum1 = "centroid"
-            else:
-                spectrum1 = "Not found"
+        root = ET.fromstring(text1)
+        spectrum1 = "Not found"
+        for scan in root.iter('scan'):
+            centroided = scan.attrib.get('centroided')
+            if centroided is not None:
+                if centroided == "0":
+                    spectrum1 = "profile"
+                elif centroided == "1":
+                    spectrum1 = "centroid"
+                else:
+                    spectrum1 = "Not found"
+                break
     except Exception:
         spectrum1 = "Not found"
     return spectrum1
@@ -169,7 +185,12 @@ def get_mzxml_spectrum_type(text1):
 
 def get_source_mzxml(text1):
     try:
-        source1 = text1.split('parentFile fileName="')[1].split('"')[0]
+        root = ET.fromstring(text1)
+        parent = root.find('.//parentFile')
+        if parent is not None:
+            source1 = parent.attrib.get('fileName', "Not found")
+        else:
+            source1 = "Not found"
     except Exception:
         source1 = "Not found"
     return source1
@@ -177,18 +198,18 @@ def get_source_mzxml(text1):
 
 def get_mzxml_software_list(text1):
     try:
-        softwaresList1 = ''
-        for i in range(text1.count("<software")):
-            if i != 0:
-                softwaresList1 = softwaresList1 + ' + '
-            softwaresList1 = softwaresList1 + \
-                text1.split("<software")[i+1].split('type="')[1]\
-                     .split('"')[0] + ': ' + \
-                text1.split("<software")[i+1].split('name="')[1]\
-                     .split('"')[0] + ' ' + \
-                text1.split("<software")[i+1]\
-                     .split('version="')[1]\
-                     .split('"')[0]
+        root = ET.fromstring(text1)
+        softwares = []
+        for sw in root.iter('software'):
+            type_ = sw.attrib.get('type', '')
+            name = sw.attrib.get('name', '')
+            version = sw.attrib.get('version', '')
+            part = ''
+            if type_:
+                part += f"{type_}: "
+            part += f"{name} {version}".strip()
+            softwares.append(part)
+        softwaresList1 = ' + '.join(softwares) if softwares else "Not found"
     except Exception:
         softwaresList1 = "Not found"
     return softwaresList1
@@ -224,12 +245,35 @@ def get_mzxml_instrument_model(text1):
 
 def get_mzxml_version(text1):
     try:
-        version1 = text1.split('<mzXML')[1].split('mzXML_')[1]\
-                .split('"')[0].split(' ')[0]
+        # Parse XML to get version from root attributes
+        root = ET.fromstring(text1)
+        # Attempt to find attribute containing 'mzXML_' pattern
+        version1 = None
+        for val in root.attrib.values():
+            if 'mzXML_' in val:
+                version1 = val.split('mzXML_')[1].split(' ')[0]
+                break
+        if version1 is None:
+            # fallback to attribute named 'version' if present
+            version1 = root.attrib.get('version', "Not found")
     except Exception:
         version1 = "Not found"
     return version1
 
+
+def get_mzxml_instrument_model_et(text1):
+    """Extract instrument model using ElementTree for mzXML files."""
+    try:
+        root = ET.fromstring(text1)
+        msModel = root.find('.//msModel')
+        if msModel is not None and msModel.attrib.get('value'):
+            return msModel.attrib.get('value')
+        for cv in root.iter('cvParam'):
+            if cv.attrib.get('accession') in ("MS:1001547", "MS:1003123", "MS:1000495"):
+                return cv.attrib.get('name', "Not found")
+        return "Not found"
+    except Exception:
+        return "Not found"
 
 def read_mzxml_file(file):
     f = open(file, 'r', encoding="utf-8")
